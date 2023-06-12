@@ -26,3 +26,4 @@ https://www.dandelioncloud.cn/article/details/1565338445545697281 其中在[prim
 配置好摄像头的ip，按照格式写在deepstream_app_config_yoloV5.txt中。在deepstream-yolov5@6.0下打开terminal，输入命令deepstream-app -c ./deepstream_app_config_yoloV5.txt     程序就能run起来了。
 这时候可以在terminal里用jtop命令查看资源占用情况。
 程序run起来之后，默认是将结果按rtsp协议输出到rtsp://localhost:8554/ds-test   所以可以在同一网络内的其它设备上看到结果。   在同一个局域网下的另一台windows机器上安装软件Potplayer，播放rtsp://开发板的ip:8554/ds-test，即可实时显示结果。
+![image](https://github.com/seamasZ/Xavier_Yolov5/blob/main/Inkedpic.jpg)
