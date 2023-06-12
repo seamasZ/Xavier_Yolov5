@@ -1,0 +1,35 @@
+[property]
+gpu-id=0
+net-scale-factor=0.0039215697906911373
+maintain-aspect-ratio=1
+symmetric-padding=1
+scaling-filter=1
+scaling-compute-hw=0
+#0=RGB, 1=BGR
+model-color-format=0
+
+model-engine-file=best.engine
+# force-implicit-batch-dim=1
+batch-size=1
+
+labelfile-path=labels.txt
+# int8-calib-file=yolov3-calibration.table.trt7.0
+## 0=FP32, 1=INT8, 2=FP16 mode
+network-mode=0
+num-detected-classes=4
+gie-unique-id=1
+# Integer 0: Detector  1: Classifier
+network-type=0
+# is-classifier=0
+## 1=DBSCAN, 2=NMS, 3= DBSCAN+NMS Hybrid, 4 = None(No clustering)
+cluster-mode=4
+# lib path
+parse-bbox-func-name=NvDsInferParseCustomYoloV5
+custom-lib-path=nvdsinfer_custom_impl_yolov5/libnvdsinfer_custom_impl_Yolo.so
+# engine-create-func-name=NvDsInferYoloCudaEngineGet
+#scaling-filter=0
+#scaling-compute-hw=0
+
+[class-attrs-all]
+nms-iou-threshold=0.3
+pre-cluster-threshold=0.7

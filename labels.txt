@@ -1,0 +1,4 @@
+person
+cellphone
+identification
+notebook
