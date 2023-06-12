@@ -1,0 +1,2 @@
+# Xavier_Yolov5
+将Yolov5部署到Xavier开发板上，并在DeepStream前端显示结果
