@@ -1,0 +1,284 @@
+## 英伟达DeepStream5.0中Yolo v5的部署及使用——Xavier环境 
+
+# 前提准备：运行环境 
+
+```cpp
+Xavier AGX
+jetpack 4.5
+cuda 10.2
+Deepstream 5.0
+pytorch==1.6.0+torchvision==0.7.0
+```
+
+安装pytorch
+[Jetson Xavier安装pytorch](https://blog.csdn.net/mao_hui_fei/article/details/117650584)
+
+# 一、下载代码（Xavier环境）
+
+代码地址：[https://github.com/DanaHan/Yolov5-in-Deepstream-5.0](https://github.com/DanaHan/Yolov5-in-Deepstream-5.0)
+
+```bash
+mkdir deepstream_yolov5
+cd deepstream_yolov5
+git clone https://github.com/DanaHan/Yolov5-in-Deepstream-5.0.git
+git clone https://github.com/ultralytics/yolov5.git
+```
+
+```bash
+cd yolov5
+git checkout -b v3.1 #切换到3.1版本
+```
+
+# 二、下载预训练模型（Xavier环境+自己安装Pytorch）
+
+![在这里插入图片描述](https://img-blog.csdnimg.cn/e2ca0cf7de88430c837a73acec2fd1c2.png)
+下载好模型后放到 yolov5/weights 目录下
+
+```bash
+sudo docker cp yolov5x.pt 12a01fe39897:/home/work/DeepStream_Yolov5/yolov5/weights
+```
+
+# 三、 在yolov5将yolov5的.pt模型转换成 .wts格式（Xavier环境）
+
+```bash
+cp Yolov5-in-Deepstream-5.0/gen_wts.py yolov5/
+```
+
+修改 gen_wts.py 中的模型名称，需要根据自己用的模型做对应修改，主要是第8行和第11行
+
+
+```c
+import torch
+import struct
+from utils.torch_utils import select_device
+ 
+# Initialize
+device = select_device('cpu')
+# Load model
+model = torch.load('weights/yolov5x.pt', map_location=device)['model'].float()  # load to FP32
+model.to(device).eval()
+ 
+f = open('yolov5x.wts', 'w')
+f.write('{}\n'.format(len(model.state_dict().keys())))
+for k, v in model.state_dict().items():
+    vr = v.reshape(-1).cpu().numpy()
+    f.write('{} {} '.format(k, len(vr)))
+    for vv in vr:
+        f.write(' ')
+        f.write(struct.pack('>f',float(vv)).hex())
+    f.write('\n')
+```
+
+
+运行
+
+```clike
+cd yolov5
+python3 gen_wts.py
+```
+
+成功!
+![在这里插入图片描述](https://img-blog.csdnimg.cn/f6230121f22248dba62257f786f73dc2.png)
+运行后会在本地生成 yolov5x.wts 文件。
+
+# 三、在Yolov5-in-Deepstream-5.0中将wts文件转换为TensorRT模型
+
+ 将yolov5s.wts 复制到Yolov5-in-Deepstream-5.0中生成 engine（deepstream的docker环境+自己安装Pytorch），
+
+```clike
+cp yolov5x.wts ../Yolov5-in-Deepstream-5.0
+cd ../Yolov5-in-Deepstream-5.0
+```
+
+在Yolov5-in-Deepstream-5.0修改 yolov5.cpp 文件，将 NET 宏改成自己对应的模型
+
+```clike
+#define NET x  // s m l x
+```
+
+**注意：默认情况下，yolov5 脚本生成batch size = 1 和FP16 模式的模型。**
+如果要更改此参数，请在编译前编辑 yolov5.cpp 文件。
+
+```bash
+#define USE_FP16  // set USE_INT8 or USE_FP16 or USE_FP32
+#define DEVICE 0  // GPU id
+#define NMS_THRESH 0.4
+#define CONF_THRESH 0.5
+#define BATCH_SIZE 1
+```
+
+如果转化自己训练的模型，类别数发生变化的时候，记得修改 `yololayer.h` 中的 `static constexpr int CLASS_NUM = 80;` 为自己的类别数。
+如果自己wts名称不是yolov5x.wts，可以在 yolov5.cpp 查找替换即可。
+
+然后编译
+
+```clike
+mkdir build
+cd build
+cmake ..
+make
+sudo ./yolov5 -s
+```
+
+运行后会生成 yolov5x.engine 和 libmyplugin.so 文件，首先检查下engine运行结果是否正确
+
+创建测试图片
+
+```clike
+cd ../
+mkdir samples
+```
+
+复制一张图片进来，我从deepstream的官方示例了里复制的
+
+```clike
+cd /opt/nvidia/deepstream/deepstream/samples/streams
+cp sample_720p.jpg /home/work/DeepStream_Yolov5/Yolov5-in-Deepstream-5.0/sanples/
+```
+
+然后运行
+
+```clike
+cd build/
+./yolov5 -d  ../samples
+```
+
+成功
+
+```clike
+root@12a01fe39897:/home/work/DeepStream_Yolov5/Yolov5-in-Deepstream-5.0/build# ./yolov5 -d ../sanples/
+[12/01/2021-05:56:27] [W] [TRT] Current optimization profile is: 0. Please ensure there are no enqueued operations pending in this context prior to switching profiles
+20ms
+```
+
+并且可以在build目录下生成检测结果图片，结果如下图，框正常。
+![在这里插入图片描述](https://img-blog.csdnimg.cn/71c4933d752346988f09644f845fdb11.png?x-oss-process=image/watermark,type_d3F5LXplbmhlaQ,shadow_50,text_Q1NETiBA57-f57695ZqE,size_20,color_FFFFFF,t_70,g_se,x_16)
+
+
+# 四、deepstream中yolo v5部署
+
+**小参考**：[https://blog.csdn.net/W1995S/article/details/120787406](https://blog.csdn.net/W1995S/article/details/120787406)
+
+在config下新建一个自己Yolo v5的工程名字，比如我的为**Yolov5_rtsp**，将一个绝密文件复制到该目录下：
+![在这里插入图片描述](https://img-blog.csdnimg.cn/5a8a433fce5d4a48a50fa9dbe5114e7d.png?x-oss-process=image/watermark,type_d3F5LXplbmhlaQ,shadow_50,text_Q1NETiBA57-f57695ZqE,size_20,color_FFFFFF,t_70,g_se,x_16)
+
+
+更改权限
+
+```bash
+sudo chmod -R 777 ./* -R
+```
+
+## 4.1、复制模型和库
+
+验证完毕后，将上一节生成的模型和动态库拷贝到 deepstream 目录中
+
+```bash
+cp yolov5x.engine 你的路径/Yolov5_rtsp/primary/yolov5x.engine
+cp libmyplugins.so 你的路径/Yolov5_rtsp/primary/libmyplugins.so
+```
+
+
+## 4.2、编译nvdsinfer_custom_impl_Yolo 
+
+在 Deepstream 5.0/nvdsinfer_custom_impl_Yolo 目录中运行 make 编译，生成 libnvdsinfer_custom_impl_Yolo.so 文件
+
+```clike
+export CUDA_VER=10.2
+cd nvdsinfer_custom_impl_Yolo/
+make
+```
+
+这一步会生成动态库libnvdsinfer_custom_impl_Yolo.so。
+
+
+## 4.3、修改配置文件
+
+1、修改 config_infer_primary_yoloV5_x.txt 文件，主要修改.engine文件地址。其他输入源根据自己实际情况修改。
+2、增加label文件，并配置到config_infer_primary_yoloV5.txt 文件中
+
+## 4.4、运行deepstream
+
+```clike
+LD_PRELOAD=./libmyplugins.so deepstream-app -c deepstream_app_config_yoloV5.txt
+```
+
+# 五、附录
+
+## 5.1、可能遇到的问题
+
+### 问题1：
+
+>AttributeError: Can't get attribute 'C3' on <module 'models.common' from '/home/work/DeepStream_Yolov5/yolov5/models/common.py'>
+>
+>下载的模型版本与你的代码版本不一致，重新下载v3.1的代码和模型。
+
+### 问题2：
+
+>root@12a01fe39897:/opt/nvidia/deepstream/deepstream/sources/Yolov5_rtsp/primary/nvdsinfer_custom_impl_Yolo# make 
+>g++ -o libnvdsinfer_custom_impl_Yolo.so  nvdsinfer_yolo_engine.o nvdsparsebbox_Yolo.o yoloPlugins.o trt_utils.o yolo.o kernels.o -shared -Wl,--start-group -lnvinfer_plugin -lnvinfer -lnvparsers -L/usr/local/cuda-10.2/lib64 -lcudart -lcublas -lstdc++fs -Wl,--end-group
+>/usr/bin/ld: nvdsinfer_yolo_engine.o: Relocations in generic ELF (EM: 183)
+>/usr/bin/ld: nvdsinfer_yolo_engine.o: Relocations in generic ELF (EM: 183)
+>/usr/bin/ld: nvdsinfer_yolo_engine.o: Relocations in generic ELF (EM: 183)
+>/usr/bin/ld: nvdsinfer_yolo_engine.o: Relocations in generic ELF (EM: 183)
+>/usr/bin/ld: nvdsinfer_yolo_engine.o: Relocations in generic ELF (EM: 183)
+>/usr/bin/ld: nvdsinfer_yolo_engine.o: Relocations in generic ELF (EM: 183)
+>/usr/bin/ld: nvdsinfer_yolo_engine.o: Relocations in generic ELF (EM: 183)
+>/usr/bin/ld: nvdsinfer_yolo_engine.o: Relocations in generic ELF (EM: 183)
+>nvdsinfer_yolo_engine.o: error adding symbols: File in wrong format
+>collect2: error: ld returned 1 exit status
+>Makefile:35: recipe for target 'libnvdsinfer_custom_impl_Yolo.so' failed
+>make: *** [libnvdsinfer_custom_impl_Yolo.so] Error 1
+>这里需要打开makefile文件，把include改成绝对路劲，即将
+
+```bash
+CFLAGS+= -I../../includes -I/usr/local/cuda-$(CUDA_VER)/include
+```
+
+改成
+
+```bash
+CFLAGS+= -I /opt/nvidia/deepstream/deepstream-5.0/sources/includes -I/usr/local/cuda-$(CUDA_VER)/include
+```
+
+
+### 问题3：刷屏WARNING: Num classes mismatch. Configured:80, detected by network: 5
+
+>WARNING: Num classes mismatch. Configured:80, detected by network: 5
+>WARNING: Num classes mismatch. Configured:80, detected by network: 5
+>WARNING: Num classes mismatch. Configured:80, detected by network: 5
+>WARNING: Num classes mismatch. Configured:80, detected by network: 5
+
+这里是你nvdsinfer_custom_impl_Yolo目录下nvdsparsebbox_Yolo.cpp文件里第36行左右
+
+```bash
+static const int NUM_CLASSES_YOLO = 80;
+```
+
+和你模型以及label.txt不对应。修改重新编译即可。
+
+如果改了，重新生成engine还是会出现
+
+>WARNING: Num classes mismatch. Configured:80, detected by network: 4
+>WARNING: Num classes mismatch. Configured:80, detected by network: 4
+
+刷屏这个，也有可能是deepstream配置文件，主要是推理的那个配置文件
+如下参数：
+
+```clike
+num-detected-classes=4
+```
+
+改成和你label.txt种类数量一致即可。
+
+## 5.2、参考：
+
+
+1、**github**：[https://github.com/DanaHan/Yolov5-in-Deepstream-5.0](https://github.com/DanaHan/Yolov5-in-Deepstream-5.0)
+
+2、**优秀博文**：[https://zongxp.blog.csdn.net/article/details/109444343](https://zongxp.blog.csdn.net/article/details/109444343)
+
+[https://blog.csdn.net/W1995S/article/details/120787406](https://blog.csdn.net/W1995S/article/details/120787406)
+
+3、如何不用每次都手动输入自定义库：[https://docs.nvidia.com/metropolis/deepstream/dev-guide/text/DS_FAQ.html](https://docs.nvidia.com/metropolis/deepstream/dev-guide/text/DS_FAQ.html)
+![在这里插入图片描述](https://img-blog.csdnimg.cn/41faec5696904eacaeab26a9e468a9c1.png)
