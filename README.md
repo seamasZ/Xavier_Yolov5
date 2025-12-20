@@ -1,5 +1,9 @@
 # Xavier_Yolov5: YOLOv5 实时目标检测系统
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
+[English Version](./README_EN.md) | 中文版
+
 ## 📋 项目简介
 这是一个基于 NVIDIA Xavier 开发板和 DeepStream SDK 的 YOLOv5 实时目标检测系统。该系统实现了高性能、低延迟的目标检测功能，适用于智能监控、自动驾驶辅助等实时计算机视觉应用场景。
 

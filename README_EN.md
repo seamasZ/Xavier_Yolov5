@@ -1,5 +1,9 @@
 # Xavier_Yolov5: YOLOv5 Real-time Object Detection System
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
+[中文版](./README.md) | English Version
+
 ## 📋 Project Overview
 This is a real-time object detection system based on NVIDIA Xavier development board and DeepStream SDK. The system implements high-performance, low-latency object detection functionality suitable for real-time computer vision applications such as intelligent surveillance and autonomous driving assistance.
 
