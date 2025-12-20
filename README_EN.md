@@ -7,6 +7,14 @@
 ## 📋 Project Overview
 This is a real-time object detection system based on NVIDIA Xavier development board and DeepStream SDK. The system implements high-performance, low-latency object detection functionality suitable for real-time computer vision applications such as intelligent surveillance and autonomous driving assistance.
 
+---
+
+![image](https://github.com/seamasZ/Xavier_Yolov5/blob/main/Inkedpic.jpg)
+
+*Figure: System operation interface demonstration*
+
+---
+
 ## 🎯 Key Features
 - **Real-time Object Detection**: Based on YOLOv5 algorithm, supporting real-time detection of multiple object categories
 - **High-performance Optimization**: Deeply optimized for NVIDIA Xavier hardware, achieving low-latency inference
@@ -211,9 +219,3 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 For questions or suggestions, please contact:
 - GitHub: [seamasZ](https://github.com/seamasZ)
 - Email: your-email@example.com
-
----
-
-![image](https://github.com/seamasZ/Xavier_Yolov5/blob/main/Inkedpic.jpg)
-
-*Figure: System operation interface demonstration*

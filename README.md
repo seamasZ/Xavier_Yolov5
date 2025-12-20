@@ -7,6 +7,14 @@
 ## 📋 项目简介
 这是一个基于 NVIDIA Xavier 开发板和 DeepStream SDK 的 YOLOv5 实时目标检测系统。该系统实现了高性能、低延迟的目标检测功能，适用于智能监控、自动驾驶辅助等实时计算机视觉应用场景。
 
+---
+
+![image](https://github.com/seamasZ/Xavier_Yolov5/blob/main/Inkedpic.jpg)
+
+*图：系统运行界面展示*
+
+---
+
 ## 🎯 主要特性
 - **实时目标检测**：基于 YOLOv5 算法，支持多种目标类别的实时检测
 - **高性能优化**：针对 NVIDIA Xavier 硬件进行深度优化，实现低延迟推理
@@ -211,9 +219,3 @@ LOG_CRITICAL("Critical message");
 如有问题或建议，请通过以下方式联系：
 - GitHub: [seamasZ](https://github.com/seamasZ)
 - Email: your-email@example.com
-
----
-
-![image](https://github.com/seamasZ/Xavier_Yolov5/blob/main/Inkedpic.jpg)
-
-*图：系统运行界面展示*
