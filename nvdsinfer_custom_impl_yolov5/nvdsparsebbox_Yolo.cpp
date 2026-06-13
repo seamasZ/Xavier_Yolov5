@@ -620,13 +620,17 @@ public:
 // Performance profiler for measuring execution times
 class PerformanceProfiler {
 private:
+    static const int DEFAULT_WARMUP_FRAMES = 3;  // Number of initial frames to skip for warmup
+
     struct MeasurementData {
         std::vector<double> times;          // Execution times in ms
+        std::vector<double> warmupTimes;    // Warmup execution times (excluded from stats)
         size_t peakMemoryUsage;             // Peak memory usage during measurements
         size_t currentMemoryUsage;          // Current memory usage
-        double totalTime;                   // Total time spent
+        double totalTime;                   // Total time spent (excluding warmup)
         double lastMeasurement;             // Last measurement value
-        int measurementCount;               // Number of measurements
+        int measurementCount;               // Number of measurements (excluding warmup)
+        int warmupCount;                    // Number of warmup measurements collected
     };
     
     std::unordered_map<std::string, MeasurementData> measurements;
@@ -723,10 +727,19 @@ public:
             
             // Update measurement data
             MeasurementData& data = measurements[name];
-            data.times.push_back(duration);
-            data.totalTime += duration;
             data.lastMeasurement = duration;
-            data.measurementCount++;
+            
+            // Skip warmup frames to get more accurate average inference time
+            if (data.warmupCount < DEFAULT_WARMUP_FRAMES) {
+                data.warmupTimes.push_back(duration);
+                data.warmupCount++;
+                LOG_DEBUG("Warmup frame " << data.warmupCount << "/" << DEFAULT_WARMUP_FRAMES
+                          << " for " << name << ": " << std::fixed << std::setprecision(3) << duration << "ms (excluded from stats)");
+            } else {
+                data.times.push_back(duration);
+                data.totalTime += duration;
+                data.measurementCount++;
+            }
             
             // Update memory usage if enabled
             if (enableMemoryTracking || enableDetailedProfiling) {
@@ -785,9 +798,23 @@ public:
         
         // Print detailed statistics for each measurement
         for (const auto& [name, data] : measurements) {
-            if (data.times.empty()) continue;
+            // Print warmup statistics
+            if (!data.warmupTimes.empty()) {
+                double warmupAvg = 0.0;
+                for (double t : data.warmupTimes) warmupAvg += t;
+                warmupAvg /= data.warmupTimes.size();
+                double warmupMax = *std::max_element(data.warmupTimes.begin(), data.warmupTimes.end());
+                LOG_INFO("\n" << name << " Warmup Statistics (" << data.warmupCount << " frames, excluded from avg):");
+                LOG_INFO("  Warmup Average: " << std::fixed << std::setprecision(3) << warmupAvg << "ms");
+                LOG_INFO("  Warmup Max: " << std::fixed << std::setprecision(3) << warmupMax << "ms");
+            }
+
+            if (data.times.empty()) {
+                LOG_INFO("\n" << name << ": No valid measurements after warmup (" << data.warmupCount << " warmup frames collected)");
+                continue;
+            }
             
-            // Calculate basic statistics
+            // Calculate basic statistics (excluding warmup)
             double avg = data.totalTime / data.measurementCount;
             double min = *std::min_element(data.times.begin(), data.times.end());
             double max = *std::max_element(data.times.begin(), data.times.end());
@@ -810,8 +837,8 @@ public:
             double throughput = data.measurementCount / (data.totalTime / 1000.0); // operations per second
             
             // Start logging statistics for this measurement
-            LOG_INFO("\n" << name << " Performance:");
-            LOG_INFO("  Execution Time (ms):");
+            LOG_INFO("\n" << name << " Performance (after " << data.warmupCount << " warmup frames):");
+            LOG_INFO("  Inference Time (ms):");
             LOG_INFO("    Average: " << std::fixed << std::setprecision(3) << avg);
             LOG_INFO("    Minimum: " << std::fixed << std::setprecision(3) << min);
             LOG_INFO("    Maximum: " << std::fixed << std::setprecision(3) << max);
@@ -824,8 +851,8 @@ public:
             LOG_INFO("    99th (P99): " << std::fixed << std::setprecision(3) << p99);
             LOG_INFO("  Performance Metrics:");
             LOG_INFO("    Throughput: " << std::fixed << std::setprecision(3) << throughput << " ops/sec");
-            LOG_INFO("    Total Execution Time: " << std::fixed << std::setprecision(3) << data.totalTime << "ms");
-            LOG_INFO("    Sample Count: " << data.measurementCount);
+            LOG_INFO("    Total Inference Time: " << std::fixed << std::setprecision(3) << data.totalTime << "ms");
+            LOG_INFO("    Valid Sample Count: " << data.measurementCount << " (excluded " << data.warmupCount << " warmup frames)");
             
             // Print memory usage if enabled
             if (enableMemoryTracking || enableDetailedProfiling) {
