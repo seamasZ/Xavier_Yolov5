@@ -217,7 +217,8 @@ static void addBBoxProposal(const float bx, const float by, const float bw, cons
         bbi.detectionConfidence = maxProb;
         bbi.classId = maxIndex;
         
-        std::lock_guard<std::mutex> lock(logMutex);
+        // No lock needed here: addBBoxProposal is called sequentially per class
+        // in parseYoloV5BBox, so binfo[classId] access is inherently thread-safe
         binfo.push_back(bbi);
         
         LOG_DEBUG("Added bbox: class=" << maxIndex << ", confidence=" << maxProb);
@@ -335,17 +336,20 @@ static void nmsWorkerThread(ThreadSafeQueue<BBoxProcessingTask>& taskQueue) {
     }
 }
 
-// Parallel NMS processor
+// Parallel NMS processor with condition variable for efficient waiting
 class ParallelNMSProcessor {
 private:
     ThreadSafeQueue<BBoxProcessingTask> taskQueue;
     std::vector<std::thread> workerThreads;
+    std::atomic<int> pendingTasks{0};       // Atomic counter for pending tasks
+    std::mutex completionMutex;             // Mutex for condition variable
+    std::condition_variable completionCV;   // Condition variable to signal completion
     
 public:
     ParallelNMSProcessor(size_t numThreads = MAX_WORKER_THREADS) {
         // Create worker threads
         for (size_t i = 0; i < numThreads; ++i) {
-            workerThreads.emplace_back(nmsWorkerThread, std::ref(taskQueue));
+            workerThreads.emplace_back([this]() { nmsWorkerThreadInternal(); });
             LOG_INFO("Created NMS worker thread " << i+1);
         }
     }
@@ -377,12 +381,45 @@ public:
         task.result = &result;
         task.resultMutex = &resultMutex;
         
+        pendingTasks++;  // Increment before push to avoid race
         taskQueue.push(std::move(task));
     }
     
     void waitForCompletion() {
-        while (!taskQueue.empty()) {
-            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        // Wait until all pending tasks are done using condition variable (no CPU spin)
+        std::unique_lock<std::mutex> lock(completionMutex);
+        completionCV.wait(lock, [this]() { return pendingTasks.load() == 0; });
+    }
+    
+private:
+    void nmsWorkerThreadInternal() {
+        BBoxProcessingTask task;
+        
+        while (taskQueue.pop(task)) {
+            try {
+                LOG_DEBUG("Worker thread processing class " << task.classId << " with " << task.bboxes.size() << " boxes");
+                
+                // Perform NMS on this class
+                std::vector<NvDsInferParseObjectInfo> result = nonMaximumSuppression(task.nmsThreshold, task.bboxes);
+                
+                // Safely add results to the output
+                if (task.result && task.resultMutex) {
+                    std::lock_guard<std::mutex> lock(*task.resultMutex);
+                    task.result->insert(task.result->end(), result.begin(), result.end());
+                }
+                
+                LOG_DEBUG("Worker thread completed class " << task.classId);
+                
+            } catch (const std::exception& e) {
+                LOG_ERROR("Exception in NMS worker thread: " << e.what());
+            } catch (...) {
+                LOG_ERROR("Unknown exception in NMS worker thread");
+            }
+            
+            // Decrement pending count and notify if all done
+            if (--pendingTasks <= 0) {
+                completionCV.notify_all();
+            }
         }
     }
 };
@@ -663,14 +700,15 @@ private:
         return totalMemory;
     }
     
-    // Helper to calculate percentile values
+    // Helper to calculate percentile values (optimized: O(n) partial sort instead of O(n log n) full sort)
     double calculatePercentile(const std::vector<double>& data, double percentile) {
         if (data.empty()) return 0.0;
         
         std::vector<double> sortedData = data;
-        std::sort(sortedData.begin(), sortedData.end());
-        
         size_t index = static_cast<size_t>(std::round(percentile / 100.0 * (sortedData.size() - 1)));
+        
+        // Use nth_element for O(n) partial sorting instead of full sort
+        std::nth_element(sortedData.begin(), sortedData.begin() + index, sortedData.end());
         return sortedData[index];
     }
     
@@ -1975,20 +2013,26 @@ parseYoloV5BBox(const NvDsInferLayerInfo& feat, const uint numOutputClasses, con
     
     LOG_DEBUG("Bounding box parsing completed");
     
-    // Create parallel NMS processor
-    ParallelNMSProcessor nmsProcessor(maxWorkerThreads);
+    // Reuse global NMS processor to avoid per-frame thread creation/destruction overhead
+    static ParallelNMSProcessor* nmsProcessorPtr = nullptr;
+    static std::once_flag nmsProcessorInit;
+    std::call_once(nmsProcessorInit, [&]() {
+        nmsProcessorPtr = new ParallelNMSProcessor(maxWorkerThreads);
+        LOG_INFO("Global NMS processor initialized with " << maxWorkerThreads << " worker threads");
+    });
+    
     std::vector<NvDsInferParseObjectInfo> objects;
     std::mutex resultMutex;
     
     // Submit NMS tasks for each class
     for(int cls_id = 0; cls_id < numClasses; ++cls_id) {
         if (!binfo[cls_id].empty()) {
-            nmsProcessor.processClass(cls_id, binfo[cls_id], nmsThreshold, objects, resultMutex);
+            nmsProcessorPtr->processClass(cls_id, binfo[cls_id], nmsThreshold, objects, resultMutex);
         }
     }
     
     // Wait for all NMS tasks to complete
-    nmsProcessor.waitForCompletion();
+    nmsProcessorPtr->waitForCompletion();
     
     // Apply additional post-processing if enabled
     if (useSoftNMS) {
